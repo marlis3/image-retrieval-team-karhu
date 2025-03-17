@@ -15,10 +15,10 @@ def add_image(embedding, image_name):
 
 def search_similar_images(query_embedding, k=5):
     """Finds similar images in FAISS."""
-    print(f"🔍 Searching FAISS (Total stored images: {index.ntotal})")
+    print(f"Searching FAISS (Total stored images: {index.ntotal})")
     
     if index.ntotal == 0:
-        print("⚠️ FAISS index is empty! No images available.")
+        print("FAISS index is empty! No images available.")
         return [], []
 
     query_embedding = np.array(query_embedding, dtype="float32").reshape(1, -1)  # Ensure correct shape
