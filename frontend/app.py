@@ -28,38 +28,38 @@ with tab1:
             # Add a search button
             if st.button("Find Similar Cases"):
                 with st.spinner("Analyzing image and retrieving similar cases..."):
-                    # Prepare the file for the API request
-                    files = {"file": uploaded_file.getvalue()}
-                    
-                    # Make the API request
-                    response = requests.post("http://localhost:8000/search/", files=files)
-                    
+                    # Ensure image file is sent properly
+                    uploaded_file.seek(0)  # Reset file pointer
+                    files = {"file": uploaded_file.read()}  # Read the actual file contents
+
+                    # Make API request to backend
+                    response = requests.post("http://localhost:8000/search_by_image/", files=files)
+
                     if response.status_code == 200:
                         results = response.json()
                         st.session_state.search_results = results
                     else:
-                        st.error(f"Error: {response.status_code}")
+                        st.error(f"Error {response.status_code}: {response.text}")
     
     with col2:
         if 'search_results' in st.session_state:
             results = st.session_state.search_results
-            st.success(f"Found {len(results['similar_cases'])} similar cases")
-            
-            # Display results in a more visual way
-            for i, (case_id, similarity) in enumerate(zip(results['similar_cases'], results['distances'])):
-                with st.container():
-                    cols = st.columns([1, 3])
-                    with cols[0]:
-                        st.metric("Case ID", case_id)
-                        st.metric("Similarity", f"{similarity:.4f}")
-                    
-                    with cols[1]:
-                        # Here you would fetch and display the actual image
-                        # For MVP, just show a placeholder and case details
-                        st.markdown(f"**Case #{case_id}**")
-                        st.markdown(f"Diagnosis: Example condition {i+1}")
-                        st.markdown(f"Treatment: Example treatment protocol")
-                    st.divider()
+            if results and len(results['similar_images']) > 0:
+                st.success(f"Found {len(results['similar_images'])} similar cases")
+
+                for i, (image_name, similarity) in enumerate(zip(results['similar_images'], results['distances'])):
+                    with st.container():
+                        cols = st.columns([1, 3])
+                        with cols[0]:
+                            st.metric("Case", image_name)
+                            st.metric("Similarity", f"{similarity:.4f}")
+                        with cols[1]:
+                            st.markdown(f"**Case #{image_name}**")
+                            st.markdown(f"Similarity Score: {similarity:.4f}")
+                            st.markdown(f"*Additional metadata retrieval needs backend support*")
+                        st.divider()
+            else:
+                st.warning("No similar cases found. Try another image.")
 
 with tab2:
     st.header("Search by Description")
@@ -98,37 +98,20 @@ with tab3:
         image = Image.open(uploaded_file)
         st.image(image, caption="X-ray to Add", use_column_width=True)
         
-        # Case metadata
-        st.subheader("Case Information")
-        col1, col2 = st.columns(2)
-        with col1:
-            case_id = st.text_input("Case ID (optional)")
-            patient_age = st.number_input("Patient Age", min_value=0, max_value=120)
-            gender = st.selectbox("Gender", ["", "Male", "Female", "Other"])
-        
-        with col2:
-            diagnosis = st.text_input("Diagnosis")
-            treatment = st.text_input("Treatment")
-            notes = st.text_area("Additional Notes", height=100)
-        
         # Add case button
         if st.button("Add to Database"):
             with st.spinner("Adding case..."):
                 # Prepare the data for the API request
-                files = {"file": uploaded_file.getvalue()}
-                data = {
-                    "case_id": case_id,
-                    "patient_age": patient_age,
-                    "gender": gender,
-                    "diagnosis": diagnosis,
-                    "treatment": treatment,
-                    "notes": notes
-                }
-                
-                # In a real implementation, you'd send this to your backend
-                # Here we just show a success message for the MVP
-                st.success("Case successfully added to the database!")
-                st.info("Note: Extended metadata handling needs to be implemented in your backend")
+                files = {"file": uploaded_file.read()}
+
+                # Send to backend
+                response = requests.post("http://localhost:8000/add_image/", files=files)
+
+                if response.status_code == 200:
+                    st.success("Case successfully added to the database!")
+                else:
+                    st.error(f"Error {response.status_code}: {response.text}")
+
 
 # Add an "About" section with information about the system
 with st.expander("About this System"):
