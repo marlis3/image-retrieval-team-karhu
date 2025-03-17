@@ -12,7 +12,7 @@ async def add_image(file: UploadFile = File(...)):
     image = Image.open(io.BytesIO(await file.read())).convert("RGB")
     embedding = get_image_embedding(image)
     add_embedding(embedding)
-    return {"message": "Image added to databse"}
+    return {"message": "Image added to database"}
 
 @app.post("/search/")
 async def search(file: UploadFile = File(...)):
@@ -20,4 +20,4 @@ async def search(file: UploadFile = File(...)):
     image = Image.open(io.BytesIO(await file.read())).convert("RGB")
     query_embedding = get_image_embedding(image)
     distances, indices = search(query_embedding)
-    return {"distances": distances[0].tolist(), "indices": indices[0].tolist()}
+    return {"distances": distances.tolist(), "similar_cases": indices.tolist()}
