@@ -14,7 +14,7 @@
 
 # +
 # Install necessary dependencies
-# !pip install torch torchvision transformers datasets huggingface_hub kaggle faiss-gpu kagglehub
+# !pip install torch torchvision transformers datasets huggingface_hub kaggle faiss-gpu kagglehub requests
 
 # Import libraries
 from pathlib import Path
@@ -25,13 +25,13 @@ from transformers import CLIPProcessor, CLIPModel
 import faiss
 import random
 import kagglehub
+import requests
+import os
 # -
 
 # Download the CheXpert dataset using KaggleHub
 dataset_download_path = kagglehub.dataset_download("ashery/chexpert")
 print("Path to dataset files:", dataset_download_path)
-
-import os
 
 # +
 # Load pre-trained CLIP model
@@ -40,15 +40,16 @@ model = CLIPModel.from_pretrained(model_name)
 processor = CLIPProcessor.from_pretrained(model_name)
 
 # Define the dataset path
-dataset_path = Path("/kaggle/input/chexpert/train")
+dataset_path = Path("/kaggle/input/train")
 
 image_paths = []
-amount_of_images: int = 1200
+amount_of_images = 2000
 for root, _, files in os.walk(dataset_path):
     for file in files:
         if file.lower().endswith(".jpg"):
             image_paths.append(os.path.join(root, file))
-            if len(image_paths) >= amount_of_images:  # Stop after finding 30 images
+            # Stop after finding set amount of images
+            if len(image_paths) >= amount_of_images:  
                 break
     if len(image_paths) >= amount_of_images:
         break
@@ -102,8 +103,92 @@ index = faiss.IndexFlatL2(dimension)  # L2 distance index
 index.add(embeddings)
 print("FAISS index built with", index.ntotal, "embeddings")
 
+# +
+# !pip install biopython
+from Bio import Entrez
+from Bio import Medline
+
+# Function to fetch scientific papers from PubMed
+def fetch_pubmed_papers(query, num_results=5):
+    """
+    Fetch scientific papers from PubMed based on a query.
+    
+    Args:
+        query (str): The search query (e.g., "chest X-ray pneumonia").
+        num_results (int): Number of papers to fetch (default: 5).
+    
+    Returns:
+        list: A list of dictionaries containing paper details.
+    """
+    # Set your email (required by PubMed API)
+    Entrez.email = "your_email@example.com"
+    
+    # Search PubMed
+    handle = Entrez.esearch(db="pubmed", term=query, retmax=num_results)
+    record = Entrez.read(handle)
+    handle.close()
+    
+    # Get PubMed IDs of the papers
+    id_list = record["IdList"]
+    
+    # Fetch details for each paper
+    papers = []
+    if id_list:
+        handle = Entrez.efetch(db="pubmed", id=",".join(id_list), rettype="medline", retmode="text")
+        records = Medline.parse(handle)
+        
+        for record in records:
+            paper = {
+                "title": record.get("TI", "No title available"),
+                "abstract": record.get("AB", "No abstract available"),
+                "authors": record.get("AU", []),
+                "year": record.get("DP", "").split(" ")[0],  # Extract year from date
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{record.get('PMID', '')}"
+            }
+            papers.append(paper)
+        
+        handle.close()
+    
+    return papers
+
 
 # +
+from pathlib import Path
+
+def extract_keywords(image):
+    """
+    Use CLIP to generate a text description of the image.
+    """
+    # Define possible medical conditions
+
+    conditions = [
+        "Pneumonia", "Enlarged Cardiomediastinum", "Lung Opacity", "Lung Lesion", 
+        "Pneumothorax", "Pleular Other", "Cardiomegaly", "Edema", "Consolidation", 
+        "Atelectasis", "Pleural effusion", "Fracture"
+    ]    
+    
+    # Preprocess the image and conditions
+    inputs = processor(
+        text=conditions,
+        images=image,
+        return_tensors="pt",
+        padding=True
+    )
+    
+    # Generate embeddings for the image and text
+    with torch.no_grad():
+        image_features = model.get_image_features(inputs["pixel_values"])
+        text_features = model.get_text_features(inputs["input_ids"])
+    
+    # Compute similarity between the image and each condition
+    similarities = (image_features @ text_features.T).softmax(dim=-1)
+    
+    # Get the most relevant condition
+    most_relevant_index = similarities.argmax().item()
+    most_relevant_condition = conditions[most_relevant_index]
+    
+    return most_relevant_condition
+
 # Test basic image search
 def search_similar_images(query_embedding, k=5):
     # Normalize the query embedding
@@ -112,10 +197,12 @@ def search_similar_images(query_embedding, k=5):
     distances, indices = index.search(query_embedding, k)
     return distances, indices
 
+
+# +
 # Random number for selecting a query image
 rand_num = random.randint(0, amount_of_images - 1)
 
-# Example: Search for similar images using the first image as a query
+# Example: Search for similar images using a random image as a query
 query_image_path = image_paths[rand_num]
 query_image = Image.open(query_image_path).convert("RGB")
 query_embedding = generate_embedding(query_image).reshape(1, -1)  # Reshape for FAISS
@@ -129,19 +216,24 @@ print("Top 5 similar images:")
 for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
     print(f"{i + 1}: {image_paths[idx]} (Distance: {distance:.4f})")
 
-from IPython.display import display
+# Display the query image and top similar images
+display(query_image)
+for idx in indices[0]:
+    display(Image.open(image_paths[idx]))
 
-# Path to the image
-image_path1 = image_paths[idx + 1]
-image_path2 = image_paths[idx + 2]
+# Extract keywords from the query image
+keywords = extract_keywords(query_image)
+print(f"Extracted keywords: {keywords}")
 
-# Open the image
-image1 = Image.open(image_path1)
-image2 = Image.open(image_path2)
+# Fetch scientific papers based on the keywords
+papers = fetch_pubmed_papers(keywords, num_results=3)
 
-# Display the image
-display(image1)
-display(image2)
-# -
-
-
+# Display scientific papers
+print("\nScientific papers related to the query:")
+for i, paper in enumerate(papers):
+    print(f"{i + 1}. Title: {paper['title']}")
+    print(f"   Abstract: {paper['abstract']}")
+    print(f"   Authors: {', '.join(paper['authors'])}")
+    print(f"   Year: {paper['year']}")
+    print(f"   URL: {paper['url']}")
+    print("-" * 50)
